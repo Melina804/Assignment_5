@@ -1,0 +1,131 @@
+---
+title: "Assignment 5 - Meta-analysis of pitch in schizophrenia"
+author: "Riccardo Fusaroli"
+date: "3/7/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Building on the shoulders of giants: meta-analysis
+
+## Questions to be answered
+
+1. What is the current evidence for distinctive vocal patterns in schizophrenia? Report how many papers report quantitative estimates, comment on what percentage of the overall studies reviewed they represent (see PRISMA chart) your method to analyze them, the estimated effect size of the difference (mean effect size and standard error) and forest plots representing it. N.B. Only measures of pitch mean and pitch sd are required for the assignment. Feel free to ignore the rest (although pause behavior looks interesting, if you check my article).
+
+2. Do the results match your own analysis from Assignment 3? If you add your results to the meta-analysis, do the estimated effect sizes change? Report the new estimates and the new forest plots.
+
+3. Assess the quality of the literature: report and comment on heterogeneity of the studies (tau, I2), on publication bias (funnel plot), and on influential studies.
+
+## Tips on the process to follow:
+
+- Download the data on all published articles analyzing voice in schizophrenia and the prisma chart as reference of all articles found and reviewed
+- Look through the dataset to find out which columns to use, and if there is any additional information written as comments (real world data is always messy!).
+    * Hint: PITCH_F0M and PITCH_F0SD group of variables are what you need
+    * Hint: Make sure you read the comments in the columns: `pitch_f0_variability`, `frequency`, `Title`,  `ACOUST_ANA_DESCR`, `DESCRIPTION`, and `COMMENTS`
+- Following the procedure in the slides calculate effect size and standard error of the effect size per each study. N.B. we focus on pitch mean and pitch standard deviation.
+ . first try using lmer (to connect to what you know of mixed effects models)
+ . then use rma() (to get some juicy additional statistics)
+
+- Build a forest plot of the results (forest(model))
+ 
+- Go back to Assignment 3, add your own study to the data table, and re-run meta-analysis. Do the results change?
+
+- Now look at the output of rma() and check tau and I2
+
+```{r}
+# Loading packages
+library(tidyverse)
+library(pacman)
+library(readxl)
+library(lme4)
+pacman::p_load(metafor, dplyr)
+
+# Importing data
+data <- readxl::read_xlsx("Matrix_MetaAnalysis_Diagnosis_updated290719.xlsx")
+
+# Find different coloumns 
+# Sample size =  N1 = SAMPLE_SIZE_HC &  N2 = SAMPLE_SIZE_SZ
+# Pitch mean = M2 = PITCH_F0_SZ_M & M1 = PITCH_F0_HC_M
+# Standart deviation = M1 = PITCH_F0_HC_SD & M2 = PITCH_F0_SZ_SD
+
+# This is the dataset we need to analyse pitch mean. 
+
+# Calculating the effect size for mean pitch
+PitchMeanES <- escalc("SMD", 
+                      n1i = SAMPLE_SIZE_HC, 
+                      n2i = SAMPLE_SIZE_SZ, 
+                      m1i = PITCH_F0_HC_M, 
+                      m2i = PITCH_F0_SZ_M, 
+                      sd1i = PITCH_F0_HC_SD, 
+                      sd2i = PITCH_F0_SZ_SD, data = data)
+
+# Calculating the effect size for variance 
+PitchVarES <- escalc("SMD",
+                     n1i = SAMPLE_SIZE_HC, 
+                     n2i = SAMPLE_SIZE_SZ,
+                     m1i = PITCH_F0SD_HC_M, 
+                     m2i = PITCH_F0SD_SZ_M,
+                     sd1i = PITCH_F0SD_HC_SD, 
+                     sd2i = PITCH_F0SD_SZ_SD,
+                     data = data)
+
+
+# Model
+Mean_ES <- lmer(yi ~ 1 + (1|StudyID), PitchMeanES, weights = 1/vi, REML=F, control = lmerControl(check.nobs.vs.nlev="ignore", check.nobs.vs.nRE="ignore"))
+summary(Mean_ES)
+
+# Model
+Var_ES<- lmer(yi ~ 1 + (1|StudyID), PitchVarES, weights = 1/vi, REML=F, control = lmerControl(check.nobs.vs.nlev="ignore", check.nobs.vs.nRE="ignore"))
+summary(Var_ES)
+
+# RMA makes an effect size for all of your studies for pitch mean
+Model_mean <- rma(yi, vi, data = PitchMeanES, slab= StudyID)
+forest(Model_mean)
+
+# RMA makes an effect size for all of your studies for pitch variability
+Model_var <- rma(yi, vi, data = PitchVarES, slab= StudyID)
+forest(Model_var)
+
+# A funnel plot is used to see whether there is a publication bias. 
+funnel(Model_mean) 
+funnel(Model_var)
+
+# The influence function allows us to see if there is any influential data points.
+inf_var <- influence(Model_var)
+plot(inf_var)
+
+inf_mean <- influence(Model_mean)
+plot(inf_mean)
+
+```
+
+
+Including the study from assignment 3 
+```{r}
+# importing the data from A3
+pitch_data <- read.csv("pitch_data.csv")
+
+# Due to a mistake in A3 we had to create a scaled mean pitch and a scaled pitch variability again
+# Ce´reating column with a scaled mean hz
+pitch_data$mean_pitch_scaled <- scale(pitch_data$mean_hz)
+
+# Filtering the pitch data by diagnosis so we can create a scaled pitch variability for both HC and SZ. 
+pitch_data_HC <- filter(pitch_data, Diagnosis == 0)
+pitch_data_SZ <- filter(pitch_data, Diagnosis == 1)
+
+# Creating the scaled pith variability by the taking the SD from the scaled pitch mean
+pitch_data_SZ$scaled_pitch_variability <- sd(pitch_data_SZ$mean_pitch_scaled)
+pitch_data_HC$scaled_pitch_variability <- sd(pitch_data_HC$mean_pitch_scaled)
+
+# R binding, the two filtered datasets to one. 
+pitch_data <- rbind(pitch_data_HC, pitch_data_SZ)
+
+
+# Run the model to get yi and vi
+
+```
+
+

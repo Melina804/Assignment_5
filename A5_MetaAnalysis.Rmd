@@ -1,7 +1,7 @@
 ---
 title: "Assignment 5 - Meta-analysis of pitch in schizophrenia"
-author: "Riccardo Fusaroli"
-date: "3/7/2019"
+author: "Melina Nielsen"
+date: "28/11/2019"
 output: html_document
 ---
 
@@ -41,6 +41,7 @@ library(tidyverse)
 library(pacman)
 library(readxl)
 library(lme4)
+library(lmerTest)
 pacman::p_load(metafor, dplyr)
 
 # Importing data
@@ -123,9 +124,97 @@ pitch_data_HC$scaled_pitch_variability <- sd(pitch_data_HC$mean_pitch_scaled)
 # R binding, the two filtered datasets to one. 
 pitch_data <- rbind(pitch_data_HC, pitch_data_SZ)
 
-
 # Run the model to get yi and vi
+pitch_data_model <- lmer(mean_pitch_scaled ~ Diagnosis + (1| Diagnosis) + (1| Participant), data = pitch_data)
+summary(pitch_data_model)
+mean(resid(pitch_data_model))^2
 
+# yi = -0.15980
+# vi = 2.082289e-33
+
+pitch_data_model_2 <- lmer(scaled_pitch_variability ~ Diagnosis + (1| Diagnosis) + (1| Participant), data = pitch_data)
+summary(pitch_data_model_2)
+mean(resid(pitch_data_model_2))^2
+
+# yi = -1.850e-01
+# vi = 8.11861e-27
+
+#Now we make another column called unique_ID
+pitch_data$unique_ID <- paste(pitch_data$Participant, pitch_data$Study, sep = "_")
+pitch_data$unique_ID <- as.factor(pitch_data$unique_ID)
+unique(pitch_data$unique_ID)
+
+pitch_data_HC$unique_ID <- paste(pitch_data_HC$Participant, pitch_data_HC$Study, sep = "_")
+pitch_data_HC$unique_ID <- as.factor(pitch_data_HC$unique_ID)
+unique(pitch_data_HC$unique_ID)
+
+# 173 HC and 31 SZ participants 
+
+own_study <- data.frame(StudyID = 100,
+                        SAMPLE_SIZE_HC = 173, 
+                        SAMPLE_SIZE_SZ = 31, 
+                        PITCH_F0_HC_M = mean(pitch_data_hc$mean_pitch_scaled), 
+                        PITCH_F0_SZ_M = mean(pitch_data_sz$mean_pitch_scaled), 
+                        PITCH_F0_HC_SD = sd(pitch_data_hc$mean_pitch_scaled), 
+                        PITCH_F0_SZ_SD = sd(pitch_data_sz$mean_pitch_scaled), 
+                        yi = -0.15980, 
+                        vi = 2.082289e-33)
+
+own_study_2 <- data.frame(StudyID = 100,
+                        SAMPLE_SIZE_HC = 173, 
+                        SAMPLE_SIZE_SZ = 31, 
+                        PITCH_F0SD_HC_M = mean(pitch_data_hc$pitch_variability_scaled), 
+                        PITCH_F0SD_SZ_M = mean(pitch_data_sz$pitch_variability_scaled), 
+                        PITCH_F0SD_HC_SD = sd(pitch_data_hc$pitch_variability_scaled), 
+                        PITCH_F0SD_SZ_SD = sd(pitch_data_sz$pitch_variability_scaled),
+                        yi = -0.1850,
+                        vi = 8.11861e-27)
+
+#selecting relevant columss for rbinding
+PitchMeanES_select <- select(PitchMeanES, StudyID, SAMPLE_SIZE_HC, SAMPLE_SIZE_SZ, PITCH_F0_HC_M, PITCH_F0_SZ_M, PITCH_F0_HC_SD, PITCH_F0_HC_SD, PITCH_F0_SZ_SD, yi, vi)
+
+PitchVarES_select <- select(PitchVarES, StudyID, SAMPLE_SIZE_HC, SAMPLE_SIZE_SZ, PITCH_F0SD_HC_M, PITCH_F0SD_SZ_M, PITCH_F0SD_HC_SD, PITCH_F0SD_SZ_SD, yi, vi)
+
+#rbinding them
+PitchMeanES_all <- dplyr::bind_rows(PitchMeanES_select, own_study)
+PitchVarES_all <- dplyr::bind_rows(PitchVarES_select, own_study_2)
+
+PitchVarES_all$StudyID <-as.factor(PitchVarES_all$StudyID)
+PitchMeanES_all$StudyID<-as.factor(PitchMeanES_all$StudyID)
+
+#calculting effect effectsize for pitch mean and pitch variability for each study
+PitchMeanES_calc <- escalc("SMD",
+n1i = SAMPLE_SIZE_HC, n2i = SAMPLE_SIZE_SZ,
+m1i = PITCH_F0_HC_M, m2i = PITCH_F0_SZ_M,
+sd1i = PITCH_F0_HC_SD, sd2i = PITCH_F0_SZ_SD,
+data = PitchMeanES_all)
+
+PitchVarES_calc <- escalc("SMD",
+n1i = SAMPLE_SIZE_HC, n2i = SAMPLE_SIZE_SZ,
+m1i = PITCH_F0SD_HC_M, m2i = PITCH_F0SD_SZ_M,
+sd1i = PITCH_F0SD_HC_SD, sd2i = PITCH_F0SD_SZ_SD,
+data = PitchVarES_all)
+
+#run models
+PitchMeanModelAll <- lmer(yi ~ 1 + (1|StudyID), PitchMeanES_calc, weights = 1/vi, REML=F,
+control = lmerControl(check.nobs.vs.nlev="ignore", check.nobs.vs.nRE="ignore"))
+summary(PitchMeanModelAll)
+
+PitchVarModelAll <- lmer(yi ~ 1 + (1|StudyID), PitchVarES_calc, weights = 1/vi, REML=F,
+control = lmerControl(check.nobs.vs.nlev="ignore", check.nobs.vs.nRE="ignore"))
+summary(PitchVarModelAll)
+
+#now rma models
+pitchmean_RMA_all <- rma(yi, vi, data = PitchMeanES_calc, slab=StudyID)
+summary(pitchmean_RMA_all)
+forest(pitchmean_RMA_all)
+#smaller sample size = bigger effect size - publication bias
+funnel(pitchmean_RMA_all)
+
+pitchvar_RMA_all <- rma(yi, vi, data = PitchVarES_calc, slab=StudyID)
+summary(pitchvar_RMA_all)
+forest(pitchvar_RMA_all)
+funnel(pitchvar_RMA_all)
 ```
 
 
